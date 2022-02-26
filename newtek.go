@@ -23,7 +23,7 @@ type ClientV1 interface {
 	Trigger(name string) error
 	// DataLink()
 	// File()
-	VideoPreview(name string, xres, yres int) (image.Image, error)
+	VideoPreview(name string, xres, yres, quality int) (image.Image, error)
 	// Icon()
 
 	// Dictonary stuff
@@ -32,7 +32,7 @@ type ClientV1 interface {
 	// Switcher()
 	// Buffer()
 	// SwitcherUIEffect()
-	// ShortcutStates()
+	ShortcutStates() (*ShortcutStates, error)
 	// DDRPlaylist
 	// DDRTimecode
 	// AudioMixer
@@ -155,7 +155,6 @@ func (c *clientV1) ShortcutHTTP(name string, values []string) error {
 		return err
 	}
 	return nil
-
 }
 func (c *clientV1) ShortcutWS(name string, values []string) error {
 	panic("not implemented")
@@ -164,11 +163,12 @@ func (c *clientV1) Trigger(name string) error {
 	panic("not implemented")
 }
 
-func (c *clientV1) VideoPreview(name string, xres, yres int) (image.Image, error) {
+func (c *clientV1) VideoPreview(name string, xres, yres, quality int) (image.Image, error) {
 	b, err := c.get("./image", map[string]string{
 		"name": name,
 		"xres": strconv.Itoa(xres),
 		"yres": strconv.Itoa(yres),
+		"q":    strconv.Itoa(quality),
 	})
 	if err != nil {
 		return nil, err
@@ -181,4 +181,22 @@ func (c *clientV1) VideoPreview(name string, xres, yres int) (image.Image, error
 	}
 
 	return i, nil
+}
+
+func (c *clientV1) ShortcutStates() (*ShortcutStates, error) {
+	mp := make(map[string]string)
+	mp["name"] = "shortcut_states"
+
+	ret := &ShortcutStates{}
+
+	b, err := c.get("./dictionary", mp)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := xml.Unmarshal(b, ret); err != nil {
+		return nil, err
+	}
+
+	return ret, nil
 }

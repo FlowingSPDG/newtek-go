@@ -24,7 +24,7 @@ func main() {
 	fmt.Println("Product Name:", prod.ProductName)
 	fmt.Println("Session Name:", prod.SessionName)
 
-	i, err := c.VideoPreview("output1", 1920, 1080)
+	i, err := c.VideoPreview("output1", 1920, 1080, 50)
 	if err != nil {
 		panic(err)
 	}

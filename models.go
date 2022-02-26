@@ -36,3 +36,15 @@ type Tally struct {
 		NdiID  string `xml:"ndi_id,attr"`
 	} `xml:"column"`
 }
+
+type ShortcutStates struct {
+	XMLName       xml.Name `xml:"shortcut_states"`
+	Text          string   `xml:",chardata"`
+	ShortcutState []struct {
+		Text   string `xml:",chardata"`
+		Name   string `xml:"name,attr"`
+		Value  string `xml:"value,attr"`
+		Type   string `xml:"type,attr"`
+		Sender string `xml:"sender,attr"`
+	} `xml:"shortcut_state"`
+}

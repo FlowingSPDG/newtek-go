@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/FlowingSPDG/newtek-go"
 )
@@ -25,6 +26,12 @@ func main() {
 	fmt.Println("Session Name:", prod.SessionName)
 
 	if err := c.ShortcutHTTP("record", nil); err != nil {
+		panic(err)
+	}
+
+	time.Sleep(time.Second * time.Duration(3))
+
+	if err := c.ShortcutHTTP("stop-record", nil); err != nil {
 		panic(err)
 	}
 }
