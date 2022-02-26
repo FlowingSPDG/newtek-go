@@ -1,12 +1,16 @@
 package newtek
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 
 	"github.com/icholy/digest"
 )
@@ -19,7 +23,7 @@ type ClientV1 interface {
 	Trigger(name string) error
 	// DataLink()
 	// File()
-	// Image()
+	VideoPreview(name string, xres, yres int) (image.Image, error)
 	// Icon()
 
 	// Dictonary stuff
@@ -158,4 +162,23 @@ func (c *clientV1) ShortcutWS(name string, values []string) error {
 }
 func (c *clientV1) Trigger(name string) error {
 	panic("not implemented")
+}
+
+func (c *clientV1) VideoPreview(name string, xres, yres int) (image.Image, error) {
+	b, err := c.get("./image", map[string]string{
+		"name": name,
+		"xres": strconv.Itoa(xres),
+		"yres": strconv.Itoa(yres),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	r := bytes.NewReader(b)
+	i, err := jpeg.Decode(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return i, nil
 }
