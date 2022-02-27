@@ -7,11 +7,14 @@ import (
 	"image"
 	"image/jpeg"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
 	"strconv"
+	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/icholy/digest"
 )
 
@@ -48,6 +51,8 @@ type ClientV1 interface {
 	// v1/shortcut_state_notifications
 	// v1/timecode_notifications
 	// v1/vu_notifications
+	// VUNotifications(cb func()) error
+	ChangeNotifications(cb func(msg string)) error
 
 	// VideoPreview(name string,xres int,yres int,quality string)
 	// http://systemnameoripaddress/v1/video_notifications?name=NAME&xres=RESX&yres=RESY&q=QUALITY
@@ -67,7 +72,14 @@ type clientV1 struct {
 	host     *url.URL
 	user     string
 	password string
-	// websocketclient...
+
+	// Websocket notifications
+	// audioNotifications        *websocket.Conn
+	changeNotifications *websocket.Conn
+	// shortcutNotifications     *websocket.Conn
+	// shortcutSafeNotifications *websocket.Conn
+	// timecodeNotifications     *websocket.Conn
+	// vuNotifications *websocket.Conn
 }
 
 func NewClientV1(host, user, password string) (ClientV1, error) {
@@ -75,6 +87,7 @@ func NewClientV1(host, user, password string) (ClientV1, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &clientV1{
 		host:     u,
 		user:     user,
@@ -199,4 +212,62 @@ func (c *clientV1) ShortcutStates() (*ShortcutStates, error) {
 	}
 
 	return ret, nil
+}
+
+func (c *clientV1) ChangeNotifications(cb func(msg string)) error {
+	uri := c.host.String()
+	res, err := http.Get(uri)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if _, err := io.Copy(io.Discard, res.Body); err != nil {
+		return err
+	}
+
+	header := res.Header.Get("WWW-Authenticate")
+	chal, _ := digest.ParseChallenge(header)
+
+	// use it to create credentials for the next request
+	cred, _ := digest.Digest(chal, digest.Options{
+		Username: c.user,
+		Password: c.password,
+		Method:   res.Request.Method,
+		URI:      uri,
+		Count:    2,
+	})
+	uri = fmt.Sprintf("ws://%s/v1/change_notifications", c.host.Host)
+	res.Request.RequestURI = uri
+	res.Request.Header.Set("Authorization", cred.String())
+
+	d := websocket.DefaultDialer
+	con, resp, err := d.Dial(uri, res.Request.Header)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, res.Body); err != nil {
+		return err
+	}
+	c.changeNotifications = con
+
+	// TODO: Support context
+	go func() {
+		for {
+			_, message, err := con.ReadMessage()
+			if err != nil {
+				log.Println("read:", err)
+			}
+			cb(string(message))
+		}
+	}()
+
+	go func() {
+		for {
+			time.Sleep(time.Second * time.Duration(15))
+			con.WriteMessage(websocket.PingMessage, []byte("ping"))
+		}
+	}()
+
+	return nil
 }
