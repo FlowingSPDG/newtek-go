@@ -51,8 +51,10 @@ type ClientV1 interface {
 	// v1/shortcut_state_notifications
 	// v1/timecode_notifications
 	// v1/vu_notifications
-	// VUNotifications(cb func()) error
+	VUNotifications(name string, cb func(msg string)) error
 	ChangeNotifications(cb func(msg string)) error
+	TimecodeNotifications(cb func(msg string)) error
+	ShortcutNotifications(cb func(msg string)) error
 
 	// VideoPreview(name string,xres int,yres int,quality string)
 	// http://systemnameoripaddress/v1/video_notifications?name=NAME&xres=RESX&yres=RESY&q=QUALITY
@@ -215,38 +217,18 @@ func (c *clientV1) ShortcutStates() (*ShortcutStates, error) {
 }
 
 func (c *clientV1) ChangeNotifications(cb func(msg string)) error {
-	uri := c.host.String()
-	res, err := http.Get(uri)
+	uri, cred, err := c.getCred("change_notifications")
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
-	if _, err := io.Copy(io.Discard, res.Body); err != nil {
-		return err
-	}
-
-	header := res.Header.Get("WWW-Authenticate")
-	chal, _ := digest.ParseChallenge(header)
-
-	// use it to create credentials for the next request
-	cred, _ := digest.Digest(chal, digest.Options{
-		Username: c.user,
-		Password: c.password,
-		Method:   res.Request.Method,
-		URI:      uri,
-		Count:    2,
-	})
-	uri = fmt.Sprintf("ws://%s/v1/change_notifications", c.host.Host)
-	res.Request.RequestURI = uri
-	res.Request.Header.Set("Authorization", cred.String())
 
 	d := websocket.DefaultDialer
-	con, resp, err := d.Dial(uri, res.Request.Header)
+	con, resp, err := d.Dial(uri, cred)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if _, err := io.Copy(io.Discard, res.Body); err != nil {
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
 		return err
 	}
 	c.changeNotifications = con
@@ -270,4 +252,151 @@ func (c *clientV1) ChangeNotifications(cb func(msg string)) error {
 	}()
 
 	return nil
+}
+
+func (c *clientV1) TimecodeNotifications(cb func(msg string)) error {
+	uri, cred, err := c.getCred("timecode_notifications")
+	if err != nil {
+		return err
+	}
+	d := websocket.DefaultDialer
+	con, resp, err := d.Dial(uri, cred)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
+	c.changeNotifications = con
+
+	// TODO: Support context
+	go func() {
+		for {
+			_, message, err := con.ReadMessage()
+			if err != nil {
+				log.Println("read:", err)
+			}
+			cb(string(message))
+		}
+	}()
+
+	go func() {
+		for {
+			time.Sleep(time.Second * time.Duration(15))
+			con.WriteMessage(websocket.PingMessage, []byte("ping"))
+		}
+	}()
+
+	return nil
+}
+
+func (c *clientV1) ShortcutNotifications(cb func(msg string)) error {
+	uri, cred, err := c.getCred("shortcut_notifications")
+	if err != nil {
+		return err
+	}
+	d := websocket.DefaultDialer
+	con, resp, err := d.Dial(uri, cred)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
+	c.changeNotifications = con
+
+	// TODO: Support context
+	go func() {
+		for {
+			_, message, err := con.ReadMessage()
+			if err != nil {
+				log.Println("read:", err)
+			}
+			cb(string(message))
+		}
+	}()
+
+	go func() {
+		for {
+			time.Sleep(time.Second * time.Duration(15))
+			con.WriteMessage(websocket.PingMessage, []byte("ping"))
+		}
+	}()
+
+	return nil
+}
+
+func (c *clientV1) VUNotifications(name string, cb func(msg string)) error {
+	uri, cred, err := c.getCred("vu_notifications")
+	if err != nil {
+		return err
+	}
+	u, err := url.Parse(uri)
+	if err != nil {
+		return err
+	}
+	q := u.Query()
+	q.Add("name", name)
+	u.RawQuery = q.Encode()
+	d := websocket.DefaultDialer
+	con, resp, err := d.Dial(uri, cred)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
+	c.changeNotifications = con
+
+	// TODO: Support context
+	go func() {
+		for {
+			_, message, err := con.ReadMessage()
+			if err != nil {
+				log.Println("read:", err)
+			}
+			cb(string(message))
+		}
+	}()
+
+	go func() {
+		for {
+			time.Sleep(time.Second * time.Duration(15))
+			con.WriteMessage(websocket.PingMessage, []byte("ping"))
+		}
+	}()
+
+	return nil
+}
+
+func (c *clientV1) getCred(path string) (string, http.Header, error) {
+	uri := c.host.String()
+	res, err := http.Get(uri)
+	if err != nil {
+		return "", nil, err
+	}
+	defer res.Body.Close()
+	if _, err := io.Copy(io.Discard, res.Body); err != nil {
+		return "", nil, err
+	}
+
+	header := res.Header.Get("WWW-Authenticate")
+	chal, _ := digest.ParseChallenge(header)
+
+	// use it to create credentials for the next request
+	cred, _ := digest.Digest(chal, digest.Options{
+		Username: c.user,
+		Password: c.password,
+		Method:   res.Request.Method,
+		URI:      uri,
+		Count:    2,
+	})
+	uri = fmt.Sprintf("ws://%s/v1/%s", c.host.Host, path)
+	res.Request.RequestURI = uri
+	res.Request.Header.Set("Authorization", cred.String())
+
+	return uri, res.Request.Header, nil
 }
