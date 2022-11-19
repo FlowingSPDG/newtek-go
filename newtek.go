@@ -21,8 +21,8 @@ import (
 type ClientV1 interface {
 	GetLive() bool
 	GetProduct() (info *ProductInformation, err error)
-	ShortcutHTTP(name string, values []string) error
-	ShortcutWS(name string, values []string) error
+	ShortcutHTTP(name string, kv map[string]string) error
+	ShortcutWS(name string, kv map[string]string) error
 	Trigger(name string) error
 	// DataLink()
 	// File()
@@ -31,6 +31,7 @@ type ClientV1 interface {
 
 	// Dictonary stuff
 	// Dictionary(key string) error
+	MetaData() (*Metadata, error)
 	// Tally()
 	// Switcher()
 	// Buffer()
@@ -157,21 +158,19 @@ func (c *clientV1) GetProduct() (info *ProductInformation, err error) {
 	return ret, nil
 }
 
-func (c *clientV1) ShortcutHTTP(name string, values []string) error {
-	mp := make(map[string]string)
-	mp["name"] = name
-	for k, v := range values {
-		key := fmt.Sprintf("value%d", k)
-		mp[key] = v
+func (c *clientV1) ShortcutHTTP(name string, kv map[string]string) error {
+	if kv == nil {
+		kv = make(map[string]string)
 	}
+	kv["name"] = name
 
-	_, err := c.get("./shortcut", mp)
+	_, err := c.get("./shortcut", kv)
 	if err != nil {
 		return err
 	}
 	return nil
 }
-func (c *clientV1) ShortcutWS(name string, values []string) error {
+func (c *clientV1) ShortcutWS(name string, kv map[string]string) error {
 	panic("not implemented")
 }
 func (c *clientV1) Trigger(name string) error {
@@ -203,6 +202,24 @@ func (c *clientV1) ShortcutStates() (*ShortcutStates, error) {
 	mp["name"] = "shortcut_states"
 
 	ret := &ShortcutStates{}
+
+	b, err := c.get("./dictionary", mp)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := xml.Unmarshal(b, ret); err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
+func (c *clientV1) MetaData() (*Metadata, error) {
+	mp := make(map[string]string)
+	mp["key"] = "metadata"
+
+	ret := &Metadata{}
 
 	b, err := c.get("./dictionary", mp)
 	if err != nil {

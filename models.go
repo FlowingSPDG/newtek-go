@@ -48,3 +48,27 @@ type ShortcutStates struct {
 		Sender string `xml:"sender,attr"`
 	} `xml:"shortcut_state"`
 }
+
+type Metadata struct {
+	XMLName xml.Name `xml:"metadata"`
+	Text    string   `xml:",chardata"`
+	Clips   []Clip   `xml:"clips"`
+}
+
+type Clip struct {
+	Text string `xml:",chardata"`
+	Mark []struct {
+		Text   string   `xml:",chardata"`
+		ID     string   `xml:"id,attr"`
+		In     string   `xml:"in,attr"`
+		Out    string   `xml:"out,attr"`
+		Camera []Camera `xml:"camera"`
+	} `xml:"mark"`
+}
+
+type Camera struct {
+	Text  string `xml:",chardata"`
+	Angle string `xml:"angle,attr"`
+	Tag   string `xml:"tag,attr"`
+	Path  string `xml:"path,attr"`
+}
