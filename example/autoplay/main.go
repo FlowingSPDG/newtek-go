@@ -51,14 +51,15 @@ func main() {
 		panic(err)
 	}
 
+	// [3Play] Enter cliplist mode
+	if err := tp.ShortcutHTTP("mode", map[string]string{"value": "0"}); err != nil {
+		panic(err)
+	}
+
+	// まれに最後のクリップが追加されないことがある
 	// [3Play] Only use first clip list for this time
 	for i := 0; i < len(m.Clips[0].Mark); i++ {
 		mark := m.Clips[0].Mark[i]
-
-		// [3Play] Enter cliplist mode
-		if err := tp.ShortcutHTTP("mode", map[string]string{"value": "0"}); err != nil {
-			panic(err)
-		}
 
 		// [3Play] Select EventID and angle(0)
 		if err := tp.ShortcutHTTP("out1_clip_select", map[string]string{"value": fmt.Sprintf("%s-0", mark.ID)}); err != nil {
@@ -69,9 +70,11 @@ func main() {
 		if err := tp.ShortcutHTTP("add-to-list", nil); err != nil {
 			panic(err)
 		}
+
+		// Delay
+		time.Sleep(time.Millisecond * 100)
 	}
 
-	// Delay
 	time.Sleep(time.Millisecond * 250)
 
 	// [3Play] Switch to Playlist mode
