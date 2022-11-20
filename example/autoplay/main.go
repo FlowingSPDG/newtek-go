@@ -71,26 +71,31 @@ func main() {
 		}
 	}
 
+	// Delay
+	time.Sleep(time.Millisecond * 250)
+
 	// [3Play] Switch to Playlist mode
 	if err := tp.ShortcutHTTP("mode", map[string]string{"value": "1"}); err != nil {
 		panic(err)
 	}
 
-	// [TriCaster] Ready preview(b_row) for M/E1(v1)
+	// [TriCaster] Ready preview(b_row) for M/E1(v1). ちょっと遅延がある?
 	if err := tc.ShortcutHTTP("main_b_row_named_input", map[string]string{"input": "v1"}); err != nil {
 		panic(err)
 	}
+
+	// Delay
+	time.Sleep(time.Millisecond * 250)
 
 	// [3Play] Play
 	if err := tp.ShortcutHTTP("play", nil); err != nil {
 		panic(err)
 	}
 
-	// Delay
-	time.Sleep(time.Millisecond * 100)
-
 	// [TriCaster] Stinger into 3Play with Auto
 	if err := tc.ShortcutHTTP("main_auto", nil); err != nil {
 		panic(err)
 	}
+
+	// 自動削除も欲しい
 }
