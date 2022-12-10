@@ -50,8 +50,16 @@ func (c *clientV1TCP) Close() error {
 }
 
 // Shortcut implements ClientV1TCP
-func (c *clientV1TCP) Shortcut(s ShortcutStates) error {
-	panic("unimplemented")
+func (c *clientV1TCP) Shortcut(s Shortcuts) error {
+	b, err := xml.Marshal(s)
+	if err != nil {
+		return err
+	}
+
+	if err := c.SendBytes(b); err != nil {
+		return err
+	}
+	return nil
 }
 
 type register struct {
@@ -72,7 +80,7 @@ type ClientV1TCP interface {
 	Unregister(name string) error // send NTK_states
 	Send(data string) error
 	SendBytes(data []byte) error
-	Shortcut(s ShortcutStates) error // should include shortcut XML or name and K/V
+	Shortcut(s Shortcuts) error // should include shortcut XML or name and K/V
 
 	// TODO: Tally from reading packet
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/xml"
 	"fmt"
 
 	"github.com/FlowingSPDG/newtek-go"
@@ -27,16 +26,10 @@ func main() {
 	req := newtek.Shortcuts{
 		Shortcut: shortcuts,
 	}
-
-	b, err := xml.Marshal(req)
-	if err != nil {
-		fmt.Println("Failed to send command:", err)
-		return
+	if err := c.Shortcut(req); err != nil {
+		fmt.Println("Failed to send shortcut:", err)
+		return // DO NOT panic because TCP connection needs to be closed
 	}
 
-	if err := c.SendBytes(b); err != nil {
-		fmt.Println("Failed to send command:", err)
-		return
-	}
 	return
 }
