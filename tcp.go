@@ -35,14 +35,13 @@ func (c *clientV1TCP) Unregister(name string) error {
 
 // Send implements ClientV1TCP
 func (c *clientV1TCP) SendBytes(data []byte) error {
-	data = append(data, []byte("\n")...)
+	data = append(data, "\n"...)
 	_, err := c.conn.Write(data)
 	return err
 }
 
 // Send implements ClientV1TCP
 func (c *clientV1TCP) Send(data string) error {
-	data += "\n"
 	return c.SendBytes([]byte(data))
 }
 
@@ -84,6 +83,8 @@ func NewClientV1TCP(host string) (ClientV1TCP, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// go io.Copy(os.Stdout, c)
 	ret := &clientV1TCP{
 		conn: c,
 	}
