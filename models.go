@@ -37,16 +37,31 @@ type Tally struct {
 	} `xml:"column"`
 }
 
+type Shortcuts struct {
+	XMLName  xml.Name   `xml:"shortcuts"`
+	Text     string     `xml:",chardata"`
+	Shortcut []Shortcut `xml:"shortcut"`
+}
+
+type Shortcut struct {
+	XMLName xml.Name `xml:"shortcut"`
+	Text    string   `xml:",chardata"`
+	Name    string   `xml:"name,attr"`
+	Value   string   `xml:"value,attr"`
+}
+
 type ShortcutStates struct {
-	XMLName       xml.Name `xml:"shortcut_states"`
-	Text          string   `xml:",chardata"`
-	ShortcutState []struct {
-		Text   string `xml:",chardata"`
-		Name   string `xml:"name,attr"`
-		Value  string `xml:"value,attr"`
-		Type   string `xml:"type,attr"`
-		Sender string `xml:"sender,attr"`
-	} `xml:"shortcut_state"`
+	XMLName       xml.Name        `xml:"shortcut_states"`
+	Text          string          `xml:",chardata"`
+	ShortcutState []ShortcutState `xml:"shortcut_state"`
+}
+
+type ShortcutState struct {
+	Text   string `xml:",chardata"`
+	Name   string `xml:"name,attr"`
+	Value  string `xml:"value,attr"`
+	Type   string `xml:"type,attr"`
+	Sender string `xml:"sender,attr"`
 }
 
 type Metadata struct {
