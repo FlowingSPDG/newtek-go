@@ -13,9 +13,10 @@ import (
 	"net/url"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/icholy/digest"
 )
 
@@ -77,13 +78,11 @@ type clientV1 struct {
 	user     string
 	password string
 
-	// Websocket notifications
-	// audioNotifications        *websocket.Conn
-	changeNotifications *websocket.Conn
-	// shortcutNotifications     *websocket.Conn
-	// shortcutSafeNotifications *websocket.Conn
-	// timecodeNotifications     *websocket.Conn
-	// vuNotifications *websocket.Conn
+	// Websocket connection cache
+	wsConnections map[string]*websocket.Conn
+	wsMutex       sync.RWMutex
+	wsCallbacks   map[string][]func(msg string)
+	cbMutex       sync.RWMutex
 }
 
 func NewClientV1(host, user, password string) (ClientV1, error) {
@@ -93,9 +92,11 @@ func NewClientV1(host, user, password string) (ClientV1, error) {
 	}
 
 	return &clientV1{
-		host:     u,
-		user:     user,
-		password: password,
+		host:          u,
+		user:          user,
+		password:      password,
+		wsConnections: make(map[string]*websocket.Conn),
+		wsCallbacks:   make(map[string][]func(msg string)),
 	}, nil
 }
 
@@ -239,172 +240,138 @@ func (c *clientV1) MetaData(ctx context.Context) (*Metadata, error) {
 }
 
 func (c *clientV1) ChangeNotifications(ctx context.Context, cb func(msg string)) error {
-	uri, cred, err := c.getCred(ctx, "change_notifications")
+	conn, err := c.getOrCreateWebSocketConnection(ctx, "change_notifications", nil)
 	if err != nil {
 		return err
 	}
 
-	d := websocket.DefaultDialer
-	con, resp, err := d.Dial(uri, cred)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		return err
-	}
-	c.changeNotifications = con
+	// Add callback for this notification type
+	c.addCallback("change_notifications", nil, cb)
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				_, message, err := con.ReadMessage()
-				if err != nil {
-					log.Println("read:", err)
-					return
-				}
-				cb(string(message))
-			}
-		}
-	}()
-
-	go func() {
-		ticker := time.NewTicker(time.Second * 15)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				con.WriteMessage(websocket.PingMessage, []byte("ping"))
-			}
-		}
-	}()
+	// Start message handler if not already started
+	c.startMessageHandler(ctx, conn, "change_notifications", nil)
 
 	return nil
 }
 
 func (c *clientV1) TimecodeNotifications(ctx context.Context, cb func(msg string)) error {
-	uri, cred, err := c.getCred(ctx, "timecode_notifications")
+	conn, err := c.getOrCreateWebSocketConnection(ctx, "timecode_notifications", nil)
 	if err != nil {
 		return err
 	}
-	d := websocket.DefaultDialer
-	con, resp, err := d.Dial(uri, cred)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		return err
-	}
-	c.changeNotifications = con
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				_, message, err := con.ReadMessage()
-				if err != nil {
-					log.Println("read:", err)
-					return
-				}
-				cb(string(message))
-			}
-		}
-	}()
+	// Add callback for this notification type
+	c.addCallback("timecode_notifications", nil, cb)
 
-	go func() {
-		ticker := time.NewTicker(time.Second * 15)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				con.WriteMessage(websocket.PingMessage, []byte("ping"))
-			}
-		}
-	}()
+	// Start message handler if not already started
+	c.startMessageHandler(ctx, conn, "timecode_notifications", nil)
 
 	return nil
 }
 
 func (c *clientV1) ShortcutNotifications(ctx context.Context, cb func(msg string)) error {
-	uri, cred, err := c.getCred(ctx, "shortcut_notifications")
+	conn, err := c.getOrCreateWebSocketConnection(ctx, "shortcut_notifications", nil)
 	if err != nil {
 		return err
 	}
-	d := websocket.DefaultDialer
-	con, resp, err := d.Dial(uri, cred)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		return err
-	}
-	c.changeNotifications = con
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				_, message, err := con.ReadMessage()
-				if err != nil {
-					log.Println("read:", err)
-					return
-				}
-				cb(string(message))
-			}
-		}
-	}()
+	// Add callback for this notification type
+	c.addCallback("shortcut_notifications", nil, cb)
 
-	go func() {
-		ticker := time.NewTicker(time.Second * 15)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				con.WriteMessage(websocket.PingMessage, []byte("ping"))
-			}
-		}
-	}()
+	// Start message handler if not already started
+	c.startMessageHandler(ctx, conn, "shortcut_notifications", nil)
 
 	return nil
 }
 
 func (c *clientV1) VUNotifications(ctx context.Context, name string, cb func(msg string)) error {
-	uri, cred, err := c.getCred(ctx, "vu_notifications")
+	params := map[string]string{"name": name}
+	conn, err := c.getOrCreateWebSocketConnection(ctx, "vu_notifications", params)
 	if err != nil {
 		return err
 	}
-	u, err := url.Parse(uri)
+
+	// Add callback for this notification type
+	c.addCallback("vu_notifications", params, cb)
+
+	// Start message handler if not already started
+	c.startMessageHandler(ctx, conn, "vu_notifications", params)
+
+	return nil
+}
+
+// getOrCreateWebSocketConnection gets an existing WebSocket connection or creates a new one
+func (c *clientV1) getOrCreateWebSocketConnection(ctx context.Context, notificationType string, params map[string]string) (*websocket.Conn, error) {
+	// Create a unique key for this connection type and parameters
+	key := notificationType
+	for k, v := range params {
+		key += ":" + k + "=" + v
+	}
+
+	c.wsMutex.RLock()
+	conn, exists := c.wsConnections[key]
+	c.wsMutex.RUnlock()
+
+	if exists && conn != nil {
+		return conn, nil
+	}
+
+	// Create new connection
+	uri, cred, err := c.getCred(ctx, notificationType)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	q := u.Query()
-	q.Add("name", name)
-	u.RawQuery = q.Encode()
-	d := websocket.DefaultDialer
-	con, resp, err := d.Dial(uri, cred)
+
+	// Add query parameters if provided
+	if len(params) > 0 {
+		u, err := url.Parse(uri)
+		if err != nil {
+			return nil, err
+		}
+		q := u.Query()
+		for k, v := range params {
+			q.Add(k, v)
+		}
+		u.RawQuery = q.Encode()
+		uri = u.String()
+	}
+
+	conn, _, err = websocket.Dial(ctx, uri, &websocket.DialOptions{
+		HTTPHeader: cred,
+	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer resp.Body.Close()
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-		return err
+
+	// Store the connection
+	c.wsMutex.Lock()
+	c.wsConnections[key] = conn
+	c.wsMutex.Unlock()
+
+	// Start ping goroutine for this connection
+	go c.startPingRoutine(ctx, conn)
+
+	return conn, nil
+}
+
+// addCallback adds a callback function for a specific notification type
+func (c *clientV1) addCallback(notificationType string, params map[string]string, callback func(msg string)) {
+	key := notificationType
+	for k, v := range params {
+		key += ":" + k + "=" + v
 	}
-	c.changeNotifications = con
+
+	c.cbMutex.Lock()
+	defer c.cbMutex.Unlock()
+	c.wsCallbacks[key] = append(c.wsCallbacks[key], callback)
+}
+
+// startMessageHandler starts a goroutine to handle incoming messages for a connection
+func (c *clientV1) startMessageHandler(ctx context.Context, conn *websocket.Conn, notificationType string, params map[string]string) {
+	key := notificationType
+	for k, v := range params {
+		key += ":" + k + "=" + v
+	}
 
 	go func() {
 		for {
@@ -412,30 +379,40 @@ func (c *clientV1) VUNotifications(ctx context.Context, name string, cb func(msg
 			case <-ctx.Done():
 				return
 			default:
-				_, message, err := con.ReadMessage()
+				_, message, err := conn.Read(ctx)
 				if err != nil {
-					log.Println("read:", err)
+					log.Printf("WebSocket read error for %s: %v", key, err)
 					return
 				}
-				cb(string(message))
+
+				// Call all registered callbacks for this connection
+				c.cbMutex.RLock()
+				callbacks := c.wsCallbacks[key]
+				c.cbMutex.RUnlock()
+
+				for _, callback := range callbacks {
+					callback(string(message))
+				}
 			}
 		}
 	}()
+}
 
-	go func() {
-		ticker := time.NewTicker(time.Second * 15)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
+// startPingRoutine starts a ping routine to keep the connection alive
+func (c *clientV1) startPingRoutine(ctx context.Context, conn *websocket.Conn) {
+	ticker := time.NewTicker(time.Second * 15)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := conn.Write(ctx, websocket.MessageText, []byte("ping")); err != nil {
+				log.Printf("WebSocket ping error: %v", err)
 				return
-			case <-ticker.C:
-				con.WriteMessage(websocket.PingMessage, []byte("ping"))
 			}
 		}
-	}()
-
-	return nil
+	}
 }
 
 func (c *clientV1) getCred(ctx context.Context, path string) (string, http.Header, error) {
