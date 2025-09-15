@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/FlowingSPDG/newtek-go"
@@ -11,13 +12,14 @@ const (
 )
 
 func main() {
+	ctx := context.Background()
 	forever := make(chan struct{})
 	c, err := newtek.NewClientV1(host, "admin", "admin")
 	if err != nil {
 		panic(err)
 	}
 
-	prod, err := c.GetProduct()
+	prod, err := c.GetProduct(ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -25,7 +27,7 @@ func main() {
 	fmt.Println("Product Name:", prod.ProductName)
 	fmt.Println("Session Name:", prod.SessionName)
 
-	if err := c.ShortcutNotifications(func(msg string) {
+	if err := c.ShortcutNotifications(ctx, func(msg string) {
 		fmt.Println("msg:", msg)
 	}); err != nil {
 		panic(err)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"time"
@@ -14,6 +15,7 @@ var (
 )
 
 func main() {
+	ctx := context.Background()
 	// Parse flags
 	flag.StringVar(&tpHost, "3play", "10.36.11.8", "3Play IP Address")
 	flag.StringVar(&tcHost, "tricaster", "10.36.11.6", "TriCaster IP Address")
@@ -24,7 +26,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	prodTP, err := tp.GetProduct()
+	prodTP, err := tp.GetProduct(ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -37,7 +39,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	prodTC, err := tc.GetProduct()
+	prodTC, err := tc.GetProduct(ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -46,13 +48,13 @@ func main() {
 	fmt.Println("[TriCaster] Session Name:", prodTC.SessionName)
 
 	// [3Play] クリップを取得
-	m, err := tp.MetaData()
+	m, err := tp.MetaData(ctx)
 	if err != nil {
 		panic(err)
 	}
 
 	// [3Play] Enter cliplist mode
-	if err := tp.ShortcutHTTP("mode", map[string]string{"value": "0"}); err != nil {
+	if err := tp.ShortcutHTTP(ctx, "mode", map[string]string{"value": "0"}); err != nil {
 		panic(err)
 	}
 
@@ -62,12 +64,12 @@ func main() {
 		mark := m.Clips[0].Mark[i]
 
 		// [3Play] Select EventID and angle(0)
-		if err := tp.ShortcutHTTP("out1_clip_select", map[string]string{"value": fmt.Sprintf("%s-0", mark.ID)}); err != nil {
+		if err := tp.ShortcutHTTP(ctx, "out1_clip_select", map[string]string{"value": fmt.Sprintf("%s-0", mark.ID)}); err != nil {
 			panic(err)
 		}
 
 		// [3Play] Add to playlist
-		if err := tp.ShortcutHTTP("add-to-list", nil); err != nil {
+		if err := tp.ShortcutHTTP(ctx, "add-to-list", nil); err != nil {
 			panic(err)
 		}
 
@@ -78,12 +80,12 @@ func main() {
 	time.Sleep(time.Millisecond * 250)
 
 	// [3Play] Switch to Playlist mode
-	if err := tp.ShortcutHTTP("mode", map[string]string{"value": "1"}); err != nil {
+	if err := tp.ShortcutHTTP(ctx, "mode", map[string]string{"value": "1"}); err != nil {
 		panic(err)
 	}
 
 	// [TriCaster] Ready preview(b_row) for M/E1(v1). ちょっと遅延がある?
-	if err := tc.ShortcutHTTP("main_b_row_named_input", map[string]string{"input": "v1"}); err != nil {
+	if err := tc.ShortcutHTTP(ctx, "main_b_row_named_input", map[string]string{"input": "v1"}); err != nil {
 		panic(err)
 	}
 
@@ -91,12 +93,12 @@ func main() {
 	time.Sleep(time.Millisecond * 250)
 
 	// [3Play] Play
-	if err := tp.ShortcutHTTP("play", nil); err != nil {
+	if err := tp.ShortcutHTTP(ctx, "play", nil); err != nil {
 		panic(err)
 	}
 
 	// [TriCaster] Stinger into 3Play with Auto
-	if err := tc.ShortcutHTTP("main_auto", nil); err != nil {
+	if err := tc.ShortcutHTTP(ctx, "main_auto", nil); err != nil {
 		panic(err)
 	}
 

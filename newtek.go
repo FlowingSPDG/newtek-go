@@ -2,6 +2,7 @@ package newtek
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"image"
@@ -19,24 +20,24 @@ import (
 )
 
 type ClientV1 interface {
-	GetLive() bool
-	GetProduct() (info *ProductInformation, err error)
-	ShortcutHTTP(name string, kv map[string]string) error
-	ShortcutWS(name string, kv map[string]string) error
-	Trigger(name string) error
+	GetLive(ctx context.Context) bool
+	GetProduct(ctx context.Context) (info *ProductInformation, err error)
+	ShortcutHTTP(ctx context.Context, name string, kv map[string]string) error
+	ShortcutWS(ctx context.Context, name string, kv map[string]string) error
+	Trigger(ctx context.Context, name string) error
 	// DataLink()
 	// File()
-	VideoPreview(name string, xres, yres, quality int) (image.Image, error)
+	VideoPreview(ctx context.Context, name string, xres, yres, quality int) (image.Image, error)
 	// Icon()
 
 	// Dictonary stuff
 	// Dictionary(key string) error
-	MetaData() (*Metadata, error)
+	MetaData(ctx context.Context) (*Metadata, error)
 	// Tally()
 	// Switcher()
 	// Buffer()
 	// SwitcherUIEffect()
-	ShortcutStates() (*ShortcutStates, error)
+	ShortcutStates(ctx context.Context) (*ShortcutStates, error)
 	// DDRPlaylist
 	// DDRTimecode
 	// AudioMixer
@@ -52,10 +53,10 @@ type ClientV1 interface {
 	// v1/shortcut_state_notifications
 	// v1/timecode_notifications
 	// v1/vu_notifications
-	VUNotifications(name string, cb func(msg string)) error
-	ChangeNotifications(cb func(msg string)) error
-	TimecodeNotifications(cb func(msg string)) error
-	ShortcutNotifications(cb func(msg string)) error
+	VUNotifications(ctx context.Context, name string, cb func(msg string)) error
+	ChangeNotifications(ctx context.Context, cb func(msg string)) error
+	TimecodeNotifications(ctx context.Context, cb func(msg string)) error
+	ShortcutNotifications(ctx context.Context, cb func(msg string)) error
 
 	// VideoPreview(name string,xres int,yres int,quality string)
 	// http://systemnameoripaddress/v1/video_notifications?name=NAME&xres=RESX&yres=RESY&q=QUALITY
@@ -98,7 +99,7 @@ func NewClientV1(host, user, password string) (ClientV1, error) {
 	}, nil
 }
 
-func (c *clientV1) get(endpoint string, queries map[string]string) ([]byte, error) {
+func (c *clientV1) get(ctx context.Context, endpoint string, queries map[string]string) ([]byte, error) {
 	u := *c.host
 	u.Path = path.Join(u.Path, endpoint)
 	q := u.Query()
@@ -114,7 +115,11 @@ func (c *clientV1) get(endpoint string, queries map[string]string) ([]byte, erro
 			Password: c.password,
 		},
 	}
-	resp, err := client.Get(uri)
+	req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -128,8 +133,8 @@ func (c *clientV1) get(endpoint string, queries map[string]string) ([]byte, erro
 	return b, nil
 }
 
-func (c *clientV1) GetLive() bool {
-	b, err := c.get("./live", nil)
+func (c *clientV1) GetLive(ctx context.Context) bool {
+	b, err := c.get(ctx, "./live", nil)
 	if err != nil {
 		return false
 	}
@@ -144,8 +149,8 @@ func (c *clientV1) GetLive() bool {
 	}
 }
 
-func (c *clientV1) GetProduct() (info *ProductInformation, err error) {
-	b, err := c.get("./version", nil)
+func (c *clientV1) GetProduct(ctx context.Context) (info *ProductInformation, err error) {
+	b, err := c.get(ctx, "./version", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -158,27 +163,27 @@ func (c *clientV1) GetProduct() (info *ProductInformation, err error) {
 	return ret, nil
 }
 
-func (c *clientV1) ShortcutHTTP(name string, kv map[string]string) error {
+func (c *clientV1) ShortcutHTTP(ctx context.Context, name string, kv map[string]string) error {
 	if kv == nil {
 		kv = make(map[string]string)
 	}
 	kv["name"] = name
 
-	_, err := c.get("./shortcut", kv)
+	_, err := c.get(ctx, "./shortcut", kv)
 	if err != nil {
 		return err
 	}
 	return nil
 }
-func (c *clientV1) ShortcutWS(name string, kv map[string]string) error {
+func (c *clientV1) ShortcutWS(ctx context.Context, name string, kv map[string]string) error {
 	panic("not implemented")
 }
-func (c *clientV1) Trigger(name string) error {
+func (c *clientV1) Trigger(ctx context.Context, name string) error {
 	panic("not implemented")
 }
 
-func (c *clientV1) VideoPreview(name string, xres, yres, quality int) (image.Image, error) {
-	b, err := c.get("./image", map[string]string{
+func (c *clientV1) VideoPreview(ctx context.Context, name string, xres, yres, quality int) (image.Image, error) {
+	b, err := c.get(ctx, "./image", map[string]string{
 		"name": name,
 		"xres": strconv.Itoa(xres),
 		"yres": strconv.Itoa(yres),
@@ -197,13 +202,13 @@ func (c *clientV1) VideoPreview(name string, xres, yres, quality int) (image.Ima
 	return i, nil
 }
 
-func (c *clientV1) ShortcutStates() (*ShortcutStates, error) {
+func (c *clientV1) ShortcutStates(ctx context.Context) (*ShortcutStates, error) {
 	mp := make(map[string]string)
 	mp["name"] = "shortcut_states"
 
 	ret := &ShortcutStates{}
 
-	b, err := c.get("./dictionary", mp)
+	b, err := c.get(ctx, "./dictionary", mp)
 	if err != nil {
 		return nil, err
 	}
@@ -215,13 +220,13 @@ func (c *clientV1) ShortcutStates() (*ShortcutStates, error) {
 	return ret, nil
 }
 
-func (c *clientV1) MetaData() (*Metadata, error) {
+func (c *clientV1) MetaData(ctx context.Context) (*Metadata, error) {
 	mp := make(map[string]string)
 	mp["key"] = "metadata"
 
 	ret := &Metadata{}
 
-	b, err := c.get("./dictionary", mp)
+	b, err := c.get(ctx, "./dictionary", mp)
 	if err != nil {
 		return nil, err
 	}
@@ -233,8 +238,8 @@ func (c *clientV1) MetaData() (*Metadata, error) {
 	return ret, nil
 }
 
-func (c *clientV1) ChangeNotifications(cb func(msg string)) error {
-	uri, cred, err := c.getCred("change_notifications")
+func (c *clientV1) ChangeNotifications(ctx context.Context, cb func(msg string)) error {
+	uri, cred, err := c.getCred(ctx, "change_notifications")
 	if err != nil {
 		return err
 	}
@@ -250,29 +255,40 @@ func (c *clientV1) ChangeNotifications(cb func(msg string)) error {
 	}
 	c.changeNotifications = con
 
-	// TODO: Support context
 	go func() {
 		for {
-			_, message, err := con.ReadMessage()
-			if err != nil {
-				log.Println("read:", err)
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				_, message, err := con.ReadMessage()
+				if err != nil {
+					log.Println("read:", err)
+					return
+				}
+				cb(string(message))
 			}
-			cb(string(message))
 		}
 	}()
 
 	go func() {
+		ticker := time.NewTicker(time.Second * 15)
+		defer ticker.Stop()
 		for {
-			time.Sleep(time.Second * time.Duration(15))
-			con.WriteMessage(websocket.PingMessage, []byte("ping"))
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				con.WriteMessage(websocket.PingMessage, []byte("ping"))
+			}
 		}
 	}()
 
 	return nil
 }
 
-func (c *clientV1) TimecodeNotifications(cb func(msg string)) error {
-	uri, cred, err := c.getCred("timecode_notifications")
+func (c *clientV1) TimecodeNotifications(ctx context.Context, cb func(msg string)) error {
+	uri, cred, err := c.getCred(ctx, "timecode_notifications")
 	if err != nil {
 		return err
 	}
@@ -287,29 +303,40 @@ func (c *clientV1) TimecodeNotifications(cb func(msg string)) error {
 	}
 	c.changeNotifications = con
 
-	// TODO: Support context
 	go func() {
 		for {
-			_, message, err := con.ReadMessage()
-			if err != nil {
-				log.Println("read:", err)
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				_, message, err := con.ReadMessage()
+				if err != nil {
+					log.Println("read:", err)
+					return
+				}
+				cb(string(message))
 			}
-			cb(string(message))
 		}
 	}()
 
 	go func() {
+		ticker := time.NewTicker(time.Second * 15)
+		defer ticker.Stop()
 		for {
-			time.Sleep(time.Second * time.Duration(15))
-			con.WriteMessage(websocket.PingMessage, []byte("ping"))
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				con.WriteMessage(websocket.PingMessage, []byte("ping"))
+			}
 		}
 	}()
 
 	return nil
 }
 
-func (c *clientV1) ShortcutNotifications(cb func(msg string)) error {
-	uri, cred, err := c.getCred("shortcut_notifications")
+func (c *clientV1) ShortcutNotifications(ctx context.Context, cb func(msg string)) error {
+	uri, cred, err := c.getCred(ctx, "shortcut_notifications")
 	if err != nil {
 		return err
 	}
@@ -324,29 +351,40 @@ func (c *clientV1) ShortcutNotifications(cb func(msg string)) error {
 	}
 	c.changeNotifications = con
 
-	// TODO: Support context
 	go func() {
 		for {
-			_, message, err := con.ReadMessage()
-			if err != nil {
-				log.Println("read:", err)
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				_, message, err := con.ReadMessage()
+				if err != nil {
+					log.Println("read:", err)
+					return
+				}
+				cb(string(message))
 			}
-			cb(string(message))
 		}
 	}()
 
 	go func() {
+		ticker := time.NewTicker(time.Second * 15)
+		defer ticker.Stop()
 		for {
-			time.Sleep(time.Second * time.Duration(15))
-			con.WriteMessage(websocket.PingMessage, []byte("ping"))
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				con.WriteMessage(websocket.PingMessage, []byte("ping"))
+			}
 		}
 	}()
 
 	return nil
 }
 
-func (c *clientV1) VUNotifications(name string, cb func(msg string)) error {
-	uri, cred, err := c.getCred("vu_notifications")
+func (c *clientV1) VUNotifications(ctx context.Context, name string, cb func(msg string)) error {
+	uri, cred, err := c.getCred(ctx, "vu_notifications")
 	if err != nil {
 		return err
 	}
@@ -368,30 +406,46 @@ func (c *clientV1) VUNotifications(name string, cb func(msg string)) error {
 	}
 	c.changeNotifications = con
 
-	// TODO: Support context
 	go func() {
 		for {
-			_, message, err := con.ReadMessage()
-			if err != nil {
-				log.Println("read:", err)
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				_, message, err := con.ReadMessage()
+				if err != nil {
+					log.Println("read:", err)
+					return
+				}
+				cb(string(message))
 			}
-			cb(string(message))
 		}
 	}()
 
 	go func() {
+		ticker := time.NewTicker(time.Second * 15)
+		defer ticker.Stop()
 		for {
-			time.Sleep(time.Second * time.Duration(15))
-			con.WriteMessage(websocket.PingMessage, []byte("ping"))
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				con.WriteMessage(websocket.PingMessage, []byte("ping"))
+			}
 		}
 	}()
 
 	return nil
 }
 
-func (c *clientV1) getCred(path string) (string, http.Header, error) {
+func (c *clientV1) getCred(ctx context.Context, path string) (string, http.Header, error) {
 	uri := c.host.String()
-	res, err := http.Get(uri)
+	req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	client := &http.Client{}
+	res, err := client.Do(req)
 	if err != nil {
 		return "", nil, err
 	}
