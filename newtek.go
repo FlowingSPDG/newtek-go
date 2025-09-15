@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"html"
 	"image"
 	"image/jpeg"
 	"io"
@@ -26,6 +27,73 @@ type ClientV1 interface {
 	ShortcutHTTP(ctx context.Context, name string, kv map[string]string) error
 	ShortcutWS(ctx context.Context, name string, kv map[string]string) error
 	Trigger(ctx context.Context, name string) error
+
+	// Basic Switcher Controls
+	Take(ctx context.Context) error
+	AutoTransition(ctx context.Context) error
+	SetSourceToPreview(ctx context.Context, source string) error
+	SetSourceToProgram(ctx context.Context, source string) error
+	SetSourceToME(ctx context.Context, me, source string) error
+	SetDSKOnAir(ctx context.Context, dsk string, onAir bool) error
+	SetTransitionSelection(ctx context.Context, transition string) error
+
+	// Media Controls
+	MediaPlay(ctx context.Context, media string) error
+	MediaStop(ctx context.Context, media string) error
+	MediaRewind(ctx context.Context, media string) error
+	MediaFastForward(ctx context.Context, media string) error
+	MediaPause(ctx context.Context, media string) error
+
+	// Recording and Streaming
+	RecordToggle(ctx context.Context) error
+	RecordStart(ctx context.Context) error
+	RecordStop(ctx context.Context) error
+	StreamToggle(ctx context.Context) error
+	StreamStart(ctx context.Context) error
+	StreamStop(ctx context.Context) error
+
+	// Macros
+	RunSystemMacro(ctx context.Context, macro string) error
+	RunCustomMacro(ctx context.Context, macro string) error
+
+	// Advanced Macro Controls
+	PlayMacroByName(ctx context.Context, name string) error
+	PlayMacroByID(ctx context.Context, id string) error
+	RecordMacroByName(ctx context.Context, name string) error
+	StopRecordMacro(ctx context.Context) error
+	StopMacroByName(ctx context.Context, name string) error
+	StopMacroByID(ctx context.Context, id string) error
+	MacroIsEnabledByName(ctx context.Context, name string) (bool, error)
+	MacroIsEnabledByID(ctx context.Context, id string) (bool, error)
+	GetMacroIDByName(ctx context.Context, name string) (string, error)
+
+	// Output Control
+	SetMixOutput(ctx context.Context, output string) error
+
+	// DataLink
+	SetDataLinkValue(ctx context.Context, key, value string) error
+	GetDataLinkValue(ctx context.Context, key string) (string, error)
+
+	// Feedback and Status
+	GetTally(ctx context.Context) (*Tally, error)
+	GetRecordingStatus(ctx context.Context) (bool, error)
+	GetStreamingStatus(ctx context.Context) (bool, error)
+	GetMediaStatus(ctx context.Context, media string) (string, error)
+	GetSourceStatus(ctx context.Context) (program, preview string, err error)
+
+	// Dictionary Queries
+	GetDictionary(ctx context.Context, key string) ([]byte, error)
+	GetSwitcherInfo(ctx context.Context) ([]byte, error)
+	GetBufferInfo(ctx context.Context) ([]byte, error)
+	GetSwitcherUIEffects(ctx context.Context) ([]byte, error)
+	GetAudioMixerInfo(ctx context.Context) ([]byte, error)
+	GetAudioBinsInfo(ctx context.Context) ([]byte, error)
+	GetFileBrowserInfo(ctx context.Context) ([]byte, error)
+	GetMacrosList(ctx context.Context) ([]byte, error)
+	GetNDISources(ctx context.Context) ([]byte, error)
+	GetDDRPlaylist(ctx context.Context) ([]byte, error)
+	GetDDRTimecode(ctx context.Context) ([]byte, error)
+
 	// DataLink()
 	// File()
 	VideoPreview(ctx context.Context, name string, xres, yres, quality int) (image.Image, error)
@@ -58,6 +126,11 @@ type ClientV1 interface {
 	ChangeNotifications(ctx context.Context, cb func(msg string)) error
 	TimecodeNotifications(ctx context.Context, cb func(msg string)) error
 	ShortcutNotifications(ctx context.Context, cb func(msg string)) error
+
+	// Additional WebSocket features
+	AudioNotifications(ctx context.Context, name string, cb func(data []byte)) error
+	ShortcutStateNotifications(ctx context.Context, cb func(msg string)) error
+	VideoNotifications(ctx context.Context, name string, xres, yres, quality int, cb func(data []byte)) error
 
 	// VideoPreview(name string,xres int,yres int,quality string)
 	// http://systemnameoripaddress/v1/video_notifications?name=NAME&xres=RESX&yres=RESY&q=QUALITY
@@ -177,10 +250,68 @@ func (c *clientV1) ShortcutHTTP(ctx context.Context, name string, kv map[string]
 	return nil
 }
 func (c *clientV1) ShortcutWS(ctx context.Context, name string, kv map[string]string) error {
-	panic("not implemented")
+	// WebSocket経由でのショートカット実行
+	// v1/shortcut_state を使用してショートカットを送信
+	conn, err := c.getWebSocketConnection(ctx, "shortcut_state")
+	if err != nil {
+		return err
+	}
+
+	// XML形式でショートカットを構築（encoding/xmlを使用）
+	type ShortcutWithAttrs struct {
+		XMLName xml.Name `xml:"shortcut"`
+		Name    string   `xml:"name,attr"`
+		Value   string   `xml:"value,attr,omitempty"`
+		// 動的属性を扱うためのカスタムマーシャリング
+		ExtraAttrs map[string]string `xml:"-"`
+	}
+
+	// MarshalXMLメソッドを実装
+	shortcut := ShortcutWithAttrs{
+		Name:       name,
+		Value:      "",
+		ExtraAttrs: kv,
+	}
+
+	// XMLを生成（動的属性を含む）
+	var buf bytes.Buffer
+	encoder := xml.NewEncoder(&buf)
+
+	// 開始タグを作成
+	start := xml.StartElement{
+		Name: xml.Name{Local: "shortcut"},
+		Attr: []xml.Attr{
+			{Name: xml.Name{Local: "name"}, Value: shortcut.Name},
+		},
+	}
+
+	if shortcut.Value != "" {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: "value"}, Value: shortcut.Value})
+	}
+
+	// 追加の属性を追加
+	for k, v := range shortcut.ExtraAttrs {
+		start.Attr = append(start.Attr, xml.Attr{Name: xml.Name{Local: k}, Value: v})
+	}
+
+	// XMLをエンコード
+	if err := encoder.EncodeToken(start); err != nil {
+		return fmt.Errorf("XML encoding failed: %w", err)
+	}
+	if err := encoder.EncodeToken(start.End()); err != nil {
+		return fmt.Errorf("XML encoding failed: %w", err)
+	}
+	if err := encoder.Flush(); err != nil {
+		return fmt.Errorf("XML encoding failed: %w", err)
+	}
+
+	// WebSocket経由でショートカットを送信
+	return conn.Write(ctx, websocket.MessageText, buf.Bytes())
 }
 func (c *clientV1) Trigger(ctx context.Context, name string) error {
-	panic("not implemented")
+	// トリガー実行 - /v1/trigger?name=NAME を使用
+	_, err := c.get(ctx, "./trigger", map[string]string{"name": name})
+	return err
 }
 
 func (c *clientV1) VideoPreview(ctx context.Context, name string, xres, yres, quality int) (image.Image, error) {
@@ -447,4 +578,482 @@ func (c *clientV1) getCred(ctx context.Context, path string) (string, http.Heade
 	res.Request.Header.Set("Authorization", cred.String())
 
 	return uri, res.Request.Header, nil
+}
+
+// Basic Switcher Controls
+func (c *clientV1) Take(ctx context.Context) error {
+	return c.ShortcutHTTP(ctx, "take", nil)
+}
+
+func (c *clientV1) AutoTransition(ctx context.Context) error {
+	return c.ShortcutHTTP(ctx, "auto_transition", nil)
+}
+
+func (c *clientV1) SetSourceToPreview(ctx context.Context, source string) error {
+	return c.ShortcutHTTP(ctx, "set_preview", map[string]string{"source": source})
+}
+
+func (c *clientV1) SetSourceToProgram(ctx context.Context, source string) error {
+	return c.ShortcutHTTP(ctx, "set_program", map[string]string{"source": source})
+}
+
+func (c *clientV1) SetSourceToME(ctx context.Context, me, source string) error {
+	return c.ShortcutHTTP(ctx, "set_me", map[string]string{"me": me, "source": source})
+}
+
+func (c *clientV1) SetDSKOnAir(ctx context.Context, dsk string, onAir bool) error {
+	value := "false"
+	if onAir {
+		value = "true"
+	}
+	return c.ShortcutHTTP(ctx, "set_dsk_onair", map[string]string{"dsk": dsk, "onair": value})
+}
+
+func (c *clientV1) SetTransitionSelection(ctx context.Context, transition string) error {
+	return c.ShortcutHTTP(ctx, "set_transition", map[string]string{"transition": transition})
+}
+
+// Media Controls
+func (c *clientV1) MediaPlay(ctx context.Context, media string) error {
+	return c.ShortcutHTTP(ctx, "media_play", map[string]string{"media": media})
+}
+
+func (c *clientV1) MediaStop(ctx context.Context, media string) error {
+	return c.ShortcutHTTP(ctx, "media_stop", map[string]string{"media": media})
+}
+
+func (c *clientV1) MediaRewind(ctx context.Context, media string) error {
+	return c.ShortcutHTTP(ctx, "media_rewind", map[string]string{"media": media})
+}
+
+func (c *clientV1) MediaFastForward(ctx context.Context, media string) error {
+	return c.ShortcutHTTP(ctx, "media_fastforward", map[string]string{"media": media})
+}
+
+func (c *clientV1) MediaPause(ctx context.Context, media string) error {
+	return c.ShortcutHTTP(ctx, "media_pause", map[string]string{"media": media})
+}
+
+// Recording and Streaming
+func (c *clientV1) RecordToggle(ctx context.Context) error {
+	return c.ShortcutHTTP(ctx, "record", nil)
+}
+
+func (c *clientV1) RecordStart(ctx context.Context) error {
+	return c.ShortcutHTTP(ctx, "start-record", nil)
+}
+
+func (c *clientV1) RecordStop(ctx context.Context) error {
+	return c.ShortcutHTTP(ctx, "stop-record", nil)
+}
+
+func (c *clientV1) StreamToggle(ctx context.Context) error {
+	return c.ShortcutHTTP(ctx, "stream", nil)
+}
+
+func (c *clientV1) StreamStart(ctx context.Context) error {
+	return c.ShortcutHTTP(ctx, "start-stream", nil)
+}
+
+func (c *clientV1) StreamStop(ctx context.Context) error {
+	return c.ShortcutHTTP(ctx, "stop-stream", nil)
+}
+
+// Macros
+func (c *clientV1) RunSystemMacro(ctx context.Context, macro string) error {
+	return c.ShortcutHTTP(ctx, "system_macro", map[string]string{"macro": macro})
+}
+
+func (c *clientV1) RunCustomMacro(ctx context.Context, macro string) error {
+	return c.ShortcutHTTP(ctx, "custom_macro", map[string]string{"macro": macro})
+}
+
+// Advanced Macro Controls
+func (c *clientV1) PlayMacroByName(ctx context.Context, name string) error {
+	return c.ShortcutHTTP(ctx, "play_macro_byname", map[string]string{"name": name})
+}
+
+func (c *clientV1) PlayMacroByID(ctx context.Context, id string) error {
+	return c.ShortcutHTTP(ctx, "play_macro_byid", map[string]string{"id": id})
+}
+
+func (c *clientV1) RecordMacroByName(ctx context.Context, name string) error {
+	return c.ShortcutHTTP(ctx, "record_macro_byname", map[string]string{"name": name})
+}
+
+func (c *clientV1) StopRecordMacro(ctx context.Context) error {
+	return c.ShortcutHTTP(ctx, "stop_record_macro", nil)
+}
+
+func (c *clientV1) StopMacroByName(ctx context.Context, name string) error {
+	return c.ShortcutHTTP(ctx, "stop_macro_byname", map[string]string{"name": name})
+}
+
+func (c *clientV1) StopMacroByID(ctx context.Context, id string) error {
+	return c.ShortcutHTTP(ctx, "stop_macro_byid", map[string]string{"id": id})
+}
+
+func (c *clientV1) MacroIsEnabledByName(ctx context.Context, name string) (bool, error) {
+	b, err := c.get(ctx, "./macro_enabled", map[string]string{"name": name})
+	if err != nil {
+		return false, err
+	}
+
+	switch string(b) {
+	case "TRUE", "true", "1":
+		return true, nil
+	case "FALSE", "false", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("unknown macro enabled status: %s", string(b))
+	}
+}
+
+func (c *clientV1) MacroIsEnabledByID(ctx context.Context, id string) (bool, error) {
+	b, err := c.get(ctx, "./macro_enabled", map[string]string{"id": id})
+	if err != nil {
+		return false, err
+	}
+
+	switch string(b) {
+	case "TRUE", "true", "1":
+		return true, nil
+	case "FALSE", "false", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("unknown macro enabled status: %s", string(b))
+	}
+}
+
+func (c *clientV1) GetMacroIDByName(ctx context.Context, name string) (string, error) {
+	b, err := c.get(ctx, "./get_macroid", map[string]string{"name": name})
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// Output Control
+func (c *clientV1) SetMixOutput(ctx context.Context, output string) error {
+	return c.ShortcutHTTP(ctx, "set_mix_output", map[string]string{"output": output})
+}
+
+// DataLink
+func (c *clientV1) SetDataLinkValue(ctx context.Context, key, value string) error {
+	return c.ShortcutHTTP(ctx, "set_datalink", map[string]string{"key": key, "value": value})
+}
+
+func (c *clientV1) GetDataLinkValue(ctx context.Context, key string) (string, error) {
+	b, err := c.get(ctx, "./datalink", map[string]string{"key": key})
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// Feedback and Status
+func (c *clientV1) GetTally(ctx context.Context) (*Tally, error) {
+	b, err := c.get(ctx, "./tally", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	ret := &Tally{}
+	if err := xml.Unmarshal(b, ret); err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
+func (c *clientV1) GetRecordingStatus(ctx context.Context) (bool, error) {
+	b, err := c.get(ctx, "./recording_status", nil)
+	if err != nil {
+		return false, err
+	}
+
+	switch string(b) {
+	case "TRUE", "true", "1":
+		return true, nil
+	case "FALSE", "false", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("unknown recording status: %s", string(b))
+	}
+}
+
+func (c *clientV1) GetStreamingStatus(ctx context.Context) (bool, error) {
+	b, err := c.get(ctx, "./streaming_status", nil)
+	if err != nil {
+		return false, err
+	}
+
+	switch string(b) {
+	case "TRUE", "true", "1":
+		return true, nil
+	case "FALSE", "false", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("unknown streaming status: %s", string(b))
+	}
+}
+
+func (c *clientV1) GetMediaStatus(ctx context.Context, media string) (string, error) {
+	b, err := c.get(ctx, "./media_status", map[string]string{"media": media})
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func (c *clientV1) GetSourceStatus(ctx context.Context) (program, preview string, err error) {
+	// プログラムソースの取得
+	progBytes, err := c.get(ctx, "./program_source", nil)
+	if err != nil {
+		return "", "", err
+	}
+	program = string(progBytes)
+
+	// プレビューソースの取得
+	prevBytes, err := c.get(ctx, "./preview_source", nil)
+	if err != nil {
+		return "", "", err
+	}
+	preview = string(prevBytes)
+
+	return program, preview, nil
+}
+
+// XMLエスケープ関数
+func xmlEscape(s string) string {
+	return html.EscapeString(s)
+}
+
+// Dictionary Queries
+func (c *clientV1) GetDictionary(ctx context.Context, key string) ([]byte, error) {
+	return c.get(ctx, "./dictionary", map[string]string{"key": key})
+}
+
+func (c *clientV1) GetSwitcherInfo(ctx context.Context) ([]byte, error) {
+	return c.GetDictionary(ctx, "switcher")
+}
+
+func (c *clientV1) GetBufferInfo(ctx context.Context) ([]byte, error) {
+	return c.GetDictionary(ctx, "buffer")
+}
+
+func (c *clientV1) GetSwitcherUIEffects(ctx context.Context) ([]byte, error) {
+	return c.GetDictionary(ctx, "switcher_ui_effects")
+}
+
+func (c *clientV1) GetAudioMixerInfo(ctx context.Context) ([]byte, error) {
+	return c.GetDictionary(ctx, "audiomixer")
+}
+
+func (c *clientV1) GetAudioBinsInfo(ctx context.Context) ([]byte, error) {
+	return c.GetDictionary(ctx, "audio_bins")
+}
+
+func (c *clientV1) GetFileBrowserInfo(ctx context.Context) ([]byte, error) {
+	return c.GetDictionary(ctx, "filebrowser")
+}
+
+func (c *clientV1) GetMacrosList(ctx context.Context) ([]byte, error) {
+	return c.GetDictionary(ctx, "macros_list")
+}
+
+func (c *clientV1) GetNDISources(ctx context.Context) ([]byte, error) {
+	return c.GetDictionary(ctx, "ndi_sources")
+}
+
+func (c *clientV1) GetDDRPlaylist(ctx context.Context) ([]byte, error) {
+	return c.GetDictionary(ctx, "ddr_playlist")
+}
+
+func (c *clientV1) GetDDRTimecode(ctx context.Context) ([]byte, error) {
+	return c.GetDictionary(ctx, "ddr_timecode")
+}
+
+// WebSocket connection management
+func (c *clientV1) getWebSocketConnection(ctx context.Context, path string) (*websocket.Conn, error) {
+	c.wsMutex.Lock()
+	defer c.wsMutex.Unlock()
+
+	// 既存の接続があるかチェック
+	if conn, exists := c.wsConnections[path]; exists {
+		return conn, nil
+	}
+
+	// 新しい接続を作成
+	uri, cred, err := c.getCred(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, resp, err := websocket.Dial(ctx, uri, &websocket.DialOptions{
+		HTTPHeader: cred,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return nil, err
+	}
+
+	// 接続をキャッシュに保存
+	if c.wsConnections == nil {
+		c.wsConnections = make(map[string]*websocket.Conn)
+	}
+	c.wsConnections[path] = conn
+
+	// 接続維持のためのpingルーチンを開始
+	go c.keepAlive(ctx, conn)
+
+	return conn, nil
+}
+
+func (c *clientV1) keepAlive(ctx context.Context, conn *websocket.Conn) {
+	ticker := time.NewTicker(time.Second * 15)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := conn.Ping(ctx); err != nil {
+				log.Printf("WebSocket ping failed: %v", err)
+				return
+			}
+		}
+	}
+}
+
+// Additional WebSocket features
+func (c *clientV1) AudioNotifications(ctx context.Context, name string, cb func(data []byte)) error {
+	uri, cred, err := c.getCred(ctx, "audio_notifications")
+	if err != nil {
+		return err
+	}
+	u, err := url.Parse(uri)
+	if err != nil {
+		return err
+	}
+	q := u.Query()
+	q.Add("name", name)
+	u.RawQuery = q.Encode()
+
+	conn, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{
+		HTTPHeader: cred,
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				_, message, err := conn.Read(ctx)
+				if err != nil {
+					log.Println("audio read:", err)
+					return
+				}
+				cb(message)
+			}
+		}
+	}()
+
+	go c.keepAlive(ctx, conn)
+	return nil
+}
+
+func (c *clientV1) ShortcutStateNotifications(ctx context.Context, cb func(msg string)) error {
+	uri, cred, err := c.getCred(ctx, "shortcut_state_notifications")
+	if err != nil {
+		return err
+	}
+
+	conn, resp, err := websocket.Dial(ctx, uri, &websocket.DialOptions{
+		HTTPHeader: cred,
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				_, message, err := conn.Read(ctx)
+				if err != nil {
+					log.Println("shortcut state read:", err)
+					return
+				}
+				cb(string(message))
+			}
+		}
+	}()
+
+	go c.keepAlive(ctx, conn)
+	return nil
+}
+
+func (c *clientV1) VideoNotifications(ctx context.Context, name string, xres, yres, quality int, cb func(data []byte)) error {
+	uri, cred, err := c.getCred(ctx, "video_notifications")
+	if err != nil {
+		return err
+	}
+	u, err := url.Parse(uri)
+	if err != nil {
+		return err
+	}
+	q := u.Query()
+	q.Add("name", name)
+	q.Add("xres", strconv.Itoa(xres))
+	q.Add("yres", strconv.Itoa(yres))
+	q.Add("q", strconv.Itoa(quality))
+	u.RawQuery = q.Encode()
+
+	conn, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{
+		HTTPHeader: cred,
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				_, message, err := conn.Read(ctx)
+				if err != nil {
+					log.Println("video read:", err)
+					return
+				}
+				cb(message)
+			}
+		}
+	}()
+
+	go c.keepAlive(ctx, conn)
+	return nil
 }
