@@ -1,7 +1,8 @@
 module github.com/FlowingSPDG/newtek-go
 
-go 1.17
+go 1.24
 
-require github.com/icholy/digest v0.1.15
-
-require github.com/gorilla/websocket v1.5.0
+require (
+	github.com/coder/websocket v1.8.14
+	github.com/icholy/digest v0.1.15
+)
